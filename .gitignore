@@ -1,0 +1,6 @@
+time_VSCODE.txt
+_pycache__/
+*.pyc
+build/
+dist/
+*.spec
