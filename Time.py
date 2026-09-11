@@ -4,10 +4,10 @@ import threading
 import pystray
 import tkinter
 from PIL import Image
-def save_time(seconds):
+def save_time(seconds): # Сохраняет общее время работы в файл
     with open ('time_VSCODE.txt', 'w') as file:
         file.write(str(int(seconds)))
-def load_time():
+def load_time(): # Загружает сохраненное время из файла # Если файла нет или в нем неправильные данные - возвращает 0
     try:
         with open ('time_VSCODE.txt', 'r') as file:
             clock = file.read()
@@ -18,7 +18,7 @@ def load_time():
     except ValueError:
         return 0
 total_time = load_time()
-def format_time(total_seconds):
+def format_time(total_seconds): # Переводит количесво секунд в строку формата ЧЧ:ММ:СС
     total_seconds = int(total_seconds)
     hours = total_seconds // 3600
     second_remaining = total_seconds % 3600
@@ -26,18 +26,18 @@ def format_time(total_seconds):
     seconds = second_remaining % 60
     result = str(hours).zfill(2) + ':' + str(minutes).zfill(2) + ':' + str(seconds).zfill(2)
     return result
-def check_vscode():
+def check_vscode(): # Проверяет, является ли VS Code активным окном в данный момент
     active_window = win32gui.GetForegroundWindow()
     window_name = win32gui.GetWindowText(active_window)
     is_vscode = 'Visual Studio Code' in window_name
     return is_vscode
-def finish_session(start, total_time):
+def finish_session(start, total_time): # Завершает текущую сессию работы в VS Code: # Считает её длительность, добавляя к общему времени и сохраняет результат
     end = time.time()
     time_now = end - start
     total_time = total_time + time_now
     save_time(total_time)
     return total_time, time_now
-def checkpoint(last_save, total_time, current):
+def checkpoint(last_save, total_time, current): # Промежуточно сохраняет время текущей сессиии, чтобы при аварийном закрытии программы потерялось как можно меньше времени
     session_part = current - last_save
     total_time += session_part
     save_time(total_time)
@@ -49,43 +49,43 @@ root = tkinter.Tk()
 root.withdraw()
 statistics_window = None
 stop_ivent = threading.Event()
-def exit_program(icon, item):
+def exit_program(icon, item): # Полностью заавершает программу из меню значка в трее
     stop_ivent.set()
     icon.stop()
     root.after(0, root.quit)
-def show_time(icon, item):
+def show_time(icon, item): # Просит главный поток Tkinter открыть окно статистики
     root.after(0, show_statistick)
 image = Image.open('icon.png')
 menu = pystray.Menu(pystray.MenuItem('Выход', exit_program), pystray.MenuItem('Показать статистику', show_time))
 icon = pystray.Icon('test', image, menu=menu)
 display_time = total_time
-def tracker_loop():
+def tracker_loop(): # Основной цикл трекера. # Постоянно проверяет актвное окно и считает время, пока пользователь работает в VS Code.
     was_vscode = False
     global total_time
     global display_time
     try:
         while not stop_ivent.is_set():
             is_vscode = check_vscode()
-            if is_vscode and not was_vscode:
+            if is_vscode and not was_vscode:  # Пользователь только что переключился на VS Code - начинаем новую сессию
                 start = time.time()
                 last_save = start
-            if is_vscode:
+            if is_vscode: # Пока VS Code активен - обновляем текущее отображаемое время
                 current = time.time()
                 if current - last_save >= 10:
                     start, last_save, total_time = checkpoint(last_save, total_time, current)
                 current_time = current - start
                 display_time = total_time + current_time
-            if was_vscode and not is_vscode:
+            if was_vscode and not is_vscode: # Ползователь ушел из VS Code - завершаем и сохраняем сессию
                 total_time, time_now = finish_session(start, total_time)
                 print('Общее время ' + format_time(total_time))
             time.sleep(0.1)
             was_vscode = is_vscode
-    finally:
+    finally: # Даже при завершении программы сохраняем уже накопленное время
         if is_vscode:
             current_time = time.time() - start
             total_time = total_time + current_time
         save_time(total_time)
-def show_statistick():
+def show_statistick(): # Создает и показывает окно со статистикой, если оно еще не открыто
     global statistics_window
     if statistics_window is None:
         window = tkinter.Toplevel(root)
@@ -101,33 +101,41 @@ def show_statistick():
         window.geometry(f'{window_width}x{window_height}+{x}+{y}')
         window.configure(bg='#1e1e1e')
         window.overrideredirect(True)
-        def click(event):
-            x = event.x
-            y = event.y
-            a = event.x_root
-            b = event.y_root
-            w_x = window.winfo_x()
-            w_y = window.winfo_y()
-            print('координаты мыши внутри окна: ' + 'X = ' + str(x) + ' Y = ' + str(y))
-            print('коордитаны мыши на экране: ' + 'X = ' + str(a) + ' Y ' + str(b))
-            print('Окно: ' + 'X = ' + str(w_x) + ' Y = ' + str(w_y))
-        def move(event):
-            new_x = event.x_root - x
-            new_y = event.y_root - y
-            print('Координаты при перетаскивании: ' + 'X = ' + str(new_x) + ' Y = ' + str(new_y))
+        drag_x = 0
+        drag_y = 0
+        def click(event): # Запоминает информацию о месте нажатия мыши
+            nonlocal drag_x, drag_y
+            drag_x = event.x
+            drag_y = event.y
+        def move(event): # Обрабатывает движение мыши с зажатой левой кнопкой
+            new_x = event.x_root - drag_x
+            new_y = event.y_root - drag_y
+            window.geometry(f'+{new_x}+{new_y}')
         window.bind('<Button-1>', click)
         window.bind('<B1-Motion>', move)
         title_label = tkinter.Label(window, text='Общее время: ', font=('Arial', 12), bg='#1e1e1e', fg='#aaaaaa')
         time_label = tkinter.Label(window, text=format_time(display_time), font=('Arial', 32), bg='#1e1e1e', fg='white')
         title_label.pack(pady=(25, 5))
         time_label.pack(pady=(5, 15))
-        def update_time():
+        def update_time(): # Периодически обновляет текст таймера в окне
             time_label.config(text=format_time(display_time))
             window.after(100, update_time)
-        def close_window():
+        def close_window(): # Закрывает только окно статистики, но не всю программу
             global statistics_window
             statistics_window = None
             window.destroy()
+        close_button = tkinter.Button(window, text='×', font=('Arial', 15), bg='#1e1e1e', fg='#aaaaaa', relief='flat', borderwidth=0, highlightthickness=0, activebackground='#1e1e1e', activeforeground='#aaaaaa', command=close_window)
+        close_button.place(x=270, y=8, width=20, height= 20)
+        def close_enter(event):
+            close_button.config(bg="#492E2E")
+        def close_leave(event):
+            close_button.config(bg='#1e1e1e')
+        close_button.bind('<Enter>', close_enter)
+        close_button.bind('<Leave>', close_leave)
+        hwnd = window.winfo_id()
+        #print(window.winfo_id())
+        region = win32gui.CreateRoundRectRgn(0, 0, window_width, window_height, 20, 20)
+        win32gui.SetWindowRgn(hwnd, region, True)
         window.protocol('WM_DELETE_WINDOW', close_window)
         statistics_window = window
         update_time()
