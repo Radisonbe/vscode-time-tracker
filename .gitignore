@@ -1,4 +1,5 @@
 time_VSCODE.txt
+tracker_data.json
 _pycache__/
 *.pyc
 build/

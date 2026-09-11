@@ -1,3 +1,4 @@
+import json
 import win32gui
 import time
 import threading
@@ -5,20 +6,52 @@ import pystray
 import tkinter
 from PIL import Image
 def save_time(seconds): # Сохраняет общее время работы в файл
-    with open ('time_VSCODE.txt', 'w') as file:
-        file.write(str(int(seconds)))
+    try:
+        with open ('tracker_data.json', 'r') as file:
+            data = json.load(file)
+    except FileNotFoundError:
+        data = {}
+    except json.JSONDecodeError:
+        data = {}
+    data["total_time"] = int(seconds)
+    with open ('tracker_data.json', 'w') as file:
+        json.dump(data, file)
 def load_time(): # Загружает сохраненное время из файла # Если файла нет или в нем неправильные данные - возвращает 0
     try:
-        with open ('time_VSCODE.txt', 'r') as file:
-            clock = file.read()
-            clock = int(clock)
-        return clock
+        with open ('tracker_data.json', 'r') as file:
+            data = json.load(file)
+        return data["total_time"]
     except FileNotFoundError:
         return 0
-    except ValueError:
+    except json.JSONDecodeError:
+        return 0
+    except KeyError:
         return 0
 total_time = load_time()
-def format_time(total_seconds): # Переводит количесво секунд в строку формата ЧЧ:ММ:СС
+def save_window_position(x, y):
+    try:
+        with open('tracker_data.json', 'r') as file:
+            data = json.load(file)
+    except FileNotFoundError:
+        data = {}
+    except json.JSONDecodeError:
+        data = {}
+    data["window_x"] = int(x)
+    data["window_y"] = int(y)
+    with open ('tracker_data.json', 'w') as file:
+        json.dump(data, file)
+def load_window_position():
+    try:
+        with open('tracker_data.json', 'r') as file:
+            data = json.load(file)
+        return data['window_x'], data['window_y']
+    except FileNotFoundError:
+        return None
+    except json.JSONDecodeError:
+        return None
+    except KeyError:
+        return None
+def format_time(total_seconds): # Переводит количество секунд в строку формата ЧЧ:ММ:СС
     total_seconds = int(total_seconds)
     hours = total_seconds // 3600
     second_remaining = total_seconds % 3600
@@ -49,7 +82,7 @@ root = tkinter.Tk()
 root.withdraw()
 statistics_window = None
 stop_ivent = threading.Event()
-def exit_program(icon, item): # Полностью заавершает программу из меню значка в трее
+def exit_program(icon, item): # Полностью завершает программу из меню значка в трее
     stop_ivent.set()
     icon.stop()
     root.after(0, root.quit)
@@ -75,7 +108,7 @@ def tracker_loop(): # Основной цикл трекера. # Постоян
                     start, last_save, total_time = checkpoint(last_save, total_time, current)
                 current_time = current - start
                 display_time = total_time + current_time
-            if was_vscode and not is_vscode: # Ползователь ушел из VS Code - завершаем и сохраняем сессию
+            if was_vscode and not is_vscode: # Пользователь ушел из VS Code - завершаем и сохраняем сессию
                 total_time, time_now = finish_session(start, total_time)
                 print('Общее время ' + format_time(total_time))
             time.sleep(0.1)
@@ -96,8 +129,12 @@ def show_statistick(): # Создает и показывает окно со с
         screen_height = window.winfo_screenheight()
         margin = 50
         height = 200
-        x = screen_width - window_width - margin
-        y = screen_height - window_height - height
+        position = load_window_position()
+        if position is None:
+            x = screen_width - window_width - margin
+            y = screen_height - window_height - height
+        else:
+            x, y = position
         window.geometry(f'{window_width}x{window_height}+{x}+{y}')
         window.configure(bg='#1e1e1e')
         window.overrideredirect(True)
@@ -123,6 +160,9 @@ def show_statistick(): # Создает и показывает окно со с
         def close_window(): # Закрывает только окно статистики, но не всю программу
             global statistics_window
             statistics_window = None
+            window_x = window.winfo_x()
+            window_y = window.winfo_y()
+            save_window_position(window_x, window_y)
             window.destroy()
         close_button = tkinter.Button(window, text='×', font=('Arial', 15), bg='#1e1e1e', fg='#aaaaaa', relief='flat', borderwidth=0, highlightthickness=0, activebackground='#1e1e1e', activeforeground='#aaaaaa', command=close_window)
         close_button.place(x=270, y=8, width=20, height= 20)
