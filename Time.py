@@ -4,53 +4,60 @@ import time
 import threading
 import pystray
 import tkinter
+import queue
 from PIL import Image
+data_lock = threading.Lock()
+command_queue = queue.Queue()
 def save_time(seconds): # Сохраняет общее время работы в файл
-    try:
-        with open ('tracker_data.json', 'r') as file:
-            data = json.load(file)
-    except FileNotFoundError:
-        data = {}
-    except json.JSONDecodeError:
-        data = {}
-    data["total_time"] = int(seconds)
-    with open ('tracker_data.json', 'w') as file:
-        json.dump(data, file)
+    with data_lock:
+        try:
+            with open ('tracker_data.json', 'r') as file:
+                data = json.load(file)
+        except FileNotFoundError:
+            data = {}
+        except json.JSONDecodeError:
+            data = {}
+        data["total_time"] = int(seconds)
+        with open ('tracker_data.json', 'w') as file:
+            json.dump(data, file)
 def load_time(): # Загружает сохраненное время из файла # Если файла нет или в нем неправильные данные - возвращает 0
-    try:
-        with open ('tracker_data.json', 'r') as file:
-            data = json.load(file)
-        return data["total_time"]
-    except FileNotFoundError:
-        return 0
-    except json.JSONDecodeError:
-        return 0
-    except KeyError:
-        return 0
+    with data_lock:
+        try:
+            with open ('tracker_data.json', 'r') as file:
+                data = json.load(file)
+            return data["total_time"]
+        except FileNotFoundError:
+            return 0
+        except json.JSONDecodeError:
+            return 0
+        except KeyError:
+            return 0
 total_time = load_time()
-def save_window_position(x, y):
-    try:
-        with open('tracker_data.json', 'r') as file:
-            data = json.load(file)
-    except FileNotFoundError:
-        data = {}
-    except json.JSONDecodeError:
-        data = {}
-    data["window_x"] = int(x)
-    data["window_y"] = int(y)
-    with open ('tracker_data.json', 'w') as file:
-        json.dump(data, file)
-def load_window_position():
-    try:
-        with open('tracker_data.json', 'r') as file:
-            data = json.load(file)
-        return data['window_x'], data['window_y']
-    except FileNotFoundError:
-        return None
-    except json.JSONDecodeError:
-        return None
-    except KeyError:
-        return None
+def save_window_position(x, y): #Сохраняет позицию окна при закрытии кнопкой
+    with data_lock:
+        try:
+            with open('tracker_data.json', 'r') as file:
+                data = json.load(file)
+        except FileNotFoundError:
+            data = {}
+        except json.JSONDecodeError:
+            data = {}
+        data["window_x"] = int(x)
+        data["window_y"] = int(y)
+        with open ('tracker_data.json', 'w') as file:
+            json.dump(data, file)
+def load_window_position(): #При следующем окрытии окна берет его позицию из Json файла
+    with data_lock:
+        try:
+            with open('tracker_data.json', 'r') as file:
+                data = json.load(file)
+            return data['window_x'], data['window_y']
+        except FileNotFoundError:
+            return None
+        except json.JSONDecodeError:
+            return None
+        except KeyError:
+            return None
 def format_time(total_seconds): # Переводит количество секунд в строку формата ЧЧ:ММ:СС
     total_seconds = int(total_seconds)
     hours = total_seconds // 3600
@@ -83,11 +90,22 @@ root.withdraw()
 statistics_window = None
 stop_ivent = threading.Event()
 def exit_program(icon, item): # Полностью завершает программу из меню значка в трее
-    stop_ivent.set()
-    icon.stop()
-    root.after(0, root.quit)
+    command_queue.put("exit")
 def show_time(icon, item): # Просит главный поток Tkinter открыть окно статистики
-    root.after(0, show_statistick)
+    command_queue.put("show")
+def process_commands():
+    try:
+        command = command_queue.get_nowait()
+        if command == "show":
+            show_statistick()
+        elif command == "exit":
+            stop_ivent.set()
+            icon.stop()
+            root.quit()
+            return
+    except queue.Empty:
+        pass
+    root.after(100, process_commands)
 image = Image.open('icon.png')
 menu = pystray.Menu(pystray.MenuItem('Выход', exit_program), pystray.MenuItem('Показать статистику', show_time))
 icon = pystray.Icon('test', image, menu=menu)
@@ -142,8 +160,8 @@ def show_statistick(): # Создает и показывает окно со с
         drag_y = 0
         def click(event): # Запоминает информацию о месте нажатия мыши
             nonlocal drag_x, drag_y
-            drag_x = event.x
-            drag_y = event.y
+            drag_x = event.x_root - window.winfo_x()
+            drag_y = event.y_root - window.winfo_y()
         def move(event): # Обрабатывает движение мыши с зажатой левой кнопкой
             new_x = event.x_root - drag_x
             new_y = event.y_root - drag_y
@@ -166,9 +184,9 @@ def show_statistick(): # Создает и показывает окно со с
             window.destroy()
         close_button = tkinter.Button(window, text='×', font=('Arial', 15), bg='#1e1e1e', fg='#aaaaaa', relief='flat', borderwidth=0, highlightthickness=0, activebackground='#1e1e1e', activeforeground='#aaaaaa', command=close_window)
         close_button.place(x=270, y=8, width=20, height= 20)
-        def close_enter(event):
+        def close_enter(event): #Меняет цвет вокрук кнопки закрытия при наведении на неё
             close_button.config(bg="#492E2E")
-        def close_leave(event):
+        def close_leave(event): #Меняет цвет кнопки закрытия обратно
             close_button.config(bg='#1e1e1e')
         close_button.bind('<Enter>', close_enter)
         close_button.bind('<Leave>', close_leave)
@@ -183,4 +201,5 @@ thread1 = threading.Thread(target=tracker_loop)
 thread1.start()
 thread2 = threading.Thread(target=icon.run)
 thread2.start()
+process_commands()
 root.mainloop()
