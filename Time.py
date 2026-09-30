@@ -3,8 +3,8 @@ import win32gui
 import time
 import threading
 import pystray
-import tkinter
 import queue
+import customtkinter as ctk
 from PIL import Image
 data_lock = threading.Lock()
 command_queue = queue.Queue()
@@ -76,19 +76,18 @@ def finish_session(start, total_time): # Завершает текущую се�
     time_now = end - start
     total_time = total_time + time_now
     save_time(total_time)
-    return total_time, time_now
+    return total_time
 def checkpoint(last_save, total_time, current): # Промежуточно сохраняет время текущей сессиии, чтобы при аварийном закрытии программы потерялось как можно меньше времени
     session_part = current - last_save
     total_time += session_part
     save_time(total_time)
     start = current
     last_save = current
-    return start, last_save, total_time
-is_vscode = False  
-root = tkinter.Tk()
+    return start, last_save, total_time  
+root = ctk.CTk()
 root.withdraw()
 statistics_window = None
-stop_ivent = threading.Event()
+stop_event = threading.Event()
 def exit_program(icon, item): # Полностью завершает программу из меню значка в трее
     command_queue.put("exit")
 def show_time(icon, item): # Просит главный поток Tkinter открыть окно статистики
@@ -97,9 +96,9 @@ def process_commands():
     try:
         command = command_queue.get_nowait()
         if command == "show":
-            show_statistick()
+            show_statistics()
         elif command == "exit":
-            stop_ivent.set()
+            stop_event.set()
             icon.stop()
             root.quit()
             return
@@ -112,10 +111,11 @@ icon = pystray.Icon('test', image, menu=menu)
 display_time = total_time
 def tracker_loop(): # Основной цикл трекера. # Постоянно проверяет актвное окно и считает время, пока пользователь работает в VS Code.
     was_vscode = False
+    is_vscode = False
     global total_time
     global display_time
     try:
-        while not stop_ivent.is_set():
+        while not stop_event.is_set():
             is_vscode = check_vscode()
             if is_vscode and not was_vscode:  # Пользователь только что переключился на VS Code - начинаем новую сессию
                 start = time.time()
@@ -127,7 +127,8 @@ def tracker_loop(): # Основной цикл трекера. # Постоян
                 current_time = current - start
                 display_time = total_time + current_time
             if was_vscode and not is_vscode: # Пользователь ушел из VS Code - завершаем и сохраняем сессию
-                total_time, time_now = finish_session(start, total_time)
+                total_time = finish_session(start, total_time)
+                display_time = total_time
                 print('Общее время ' + format_time(total_time))
             time.sleep(0.1)
             was_vscode = is_vscode
@@ -136,28 +137,32 @@ def tracker_loop(): # Основной цикл трекера. # Постоян
             current_time = time.time() - start
             total_time = total_time + current_time
         save_time(total_time)
-def show_statistick(): # Создает и показывает окно со статистикой, если оно еще не открыто
+def show_statistics(): # Создает и показывает окно со статистикой, если оно еще не открыто
     global statistics_window
     if statistics_window is None:
-        window = tkinter.Toplevel(root)
+        window = ctk.CTkToplevel(root)
         window.title('Code Tracker')
         window_width = 300
         window_height = 200
         screen_width = window.winfo_screenwidth()
         screen_height = window.winfo_screenheight()
-        margin = 50
-        height = 200
+        right_margin = 50
+        bottom_margin = 200
         position = load_window_position()
         if position is None:
-            x = screen_width - window_width - margin
-            y = screen_height - window_height - height
+            x = screen_width - window_width - right_margin
+            y = screen_height - window_height - bottom_margin
         else:
             x, y = position
         window.geometry(f'{window_width}x{window_height}+{x}+{y}')
-        window.configure(bg='#1e1e1e')
+        window.configure(fg_color='#15171c')
         window.overrideredirect(True)
         drag_x = 0
         drag_y = 0
+        after_id = None
+        stats_frame = ctk.CTkFrame(window, width=260, height=110, corner_radius=14, fg_color="#191C22", border_width=1, border_color='#2d3440')
+        stats_frame.pack_propagate(False)
+        stats_frame.place(relx=0.5, rely=0.5, anchor='center')
         def click(event): # Запоминает информацию о месте нажатия мыши
             nonlocal drag_x, drag_y
             drag_x = event.x_root - window.winfo_x()
@@ -168,28 +173,26 @@ def show_statistick(): # Создает и показывает окно со с
             window.geometry(f'+{new_x}+{new_y}')
         window.bind('<Button-1>', click)
         window.bind('<B1-Motion>', move)
-        title_label = tkinter.Label(window, text='Общее время: ', font=('Arial', 12), bg='#1e1e1e', fg='#aaaaaa')
-        time_label = tkinter.Label(window, text=format_time(display_time), font=('Arial', 32), bg='#1e1e1e', fg='white')
-        title_label.pack(pady=(25, 5))
-        time_label.pack(pady=(5, 15))
+        title_label = ctk.CTkLabel(stats_frame, text='ОБЩЕЕ ВРЕМЯ', font=('Segoe UI', 12), text_color="#bbc6e0", fg_color='transparent')
+        time_label = ctk.CTkLabel(stats_frame, text=format_time(display_time), font=('Segoe UI', 34, 'bold'), text_color='#f2f2f2', fg_color='transparent')
+        title_label.place(relx=0.5, rely=0.2, anchor='center')
+        time_label.place(relx=0.5, rely=0.5, anchor='center')
         def update_time(): # Периодически обновляет текст таймера в окне
-            time_label.config(text=format_time(display_time))
-            window.after(100, update_time)
+            nonlocal after_id
+            time_label.configure(text=format_time(display_time))
+            after_id = window.after(100, update_time)
         def close_window(): # Закрывает только окно статистики, но не всю программу
+            nonlocal after_id
             global statistics_window
             statistics_window = None
             window_x = window.winfo_x()
             window_y = window.winfo_y()
             save_window_position(window_x, window_y)
+            if after_id is not None:
+                window.after_cancel(after_id)
             window.destroy()
-        close_button = tkinter.Button(window, text='×', font=('Arial', 15), bg='#1e1e1e', fg='#aaaaaa', relief='flat', borderwidth=0, highlightthickness=0, activebackground='#1e1e1e', activeforeground='#aaaaaa', command=close_window)
-        close_button.place(x=270, y=8, width=20, height= 20)
-        def close_enter(event): #Меняет цвет вокрук кнопки закрытия при наведении на неё
-            close_button.config(bg="#492E2E")
-        def close_leave(event): #Меняет цвет кнопки закрытия обратно
-            close_button.config(bg='#1e1e1e')
-        close_button.bind('<Enter>', close_enter)
-        close_button.bind('<Leave>', close_leave)
+        close_button = ctk.CTkButton(window, text='×', width=28, height=28, corner_radius=6, fg_color='transparent', hover_color='#3a2024', text_color="#99a0b1", font=('Segoe UI', 16), command=close_window)
+        close_button.place(relx=1.0, x=-10, y=10, anchor='ne')
         hwnd = window.winfo_id()
         #print(window.winfo_id())
         region = win32gui.CreateRoundRectRgn(0, 0, window_width, window_height, 20, 20)
