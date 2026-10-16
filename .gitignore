@@ -6,3 +6,5 @@ dist/
 *.spec
 .venv/
 __pycache__/
+process_settings.json
+process_settings_backup.json
